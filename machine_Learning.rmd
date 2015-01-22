@@ -1,0 +1,150 @@
+---
+title: "Machine Learning"
+author: "DJSherwood"
+date: "Wednesday, January 21, 2015"
+output: html_document
+---
+
+# Background
+Researchers[1] between the UK, Germany, and Brazil used machine learning to predict the manner in which a _Unilateral Dumbell Bisceps Curl_ was conducted. Particpants were asked to perform the activity:
+
+* Class A - Correctly
+* Class B - Throwing elbows to the front
+* Class C - Lifting the dumbell halfway 
+* Class D - Lowering the dumbell halfway
+* Class E - Throwing the hips to the front
+
+The gloves, armband, lumbar belt, and dumbell were outfitted with sensors[1]. The data was captured and features were derived from the sensor data. The researchers identified 17 features of interest. Ten _random forests_ were created using 10 _trees_ each[1]. Their random forest was highly accurate for each class: 
+
+* Class A - 97.6% 
+* Class B - 97.3%
+* Class C - 98.2%
+* Class D - 98.1%
+* Class E - 99.1%
+
+The goal for this work is to demonstrate undestanding of the material presented in the _Machine Learning_ course in _Coursera's Data Scientist Specilization_ track. Data from the weight lifting study[1] was used to train a machine learning algorithm using the __Caret__ library in R. The results were tested and predictions were made on a separate dataset. 
+
+#The Data
+The .csv files were loaded into memory. The file "pml-training.csv" was read in as training data and the file "pml-testing.csv" was read in as "prediction" data. The prediction data was evaluated only after the training method was deemed to have the desired accuracy. The "pml-testing.csv" contains all columns but the classification variable "classe," which contains the Classes A-E for each observation.  
+
+```{r,echo=FALSE,warning=FALSE, message=FALSE}
+## Import Libraries
+library(randomForest)
+library(caret)
+library(ggplot2)
+
+## Read-in Training and Validation Data sets
+trn <- read.csv("C:\\Users\\Daniel\\Documents\\R_Files\\Machine_Learning\\pml-training.csv")
+prd <- read.csv("C:\\Users\\Daniel\\Documents\\R_Files\\Machine_Learning\\pml-testing.csv")
+```
+
+The first seven columns were removed because they did not seem to be direct measurments of interest. That is, they were date measurements, subject names, etc. 
+
+```{r}
+## Remove prod id, username, etc.
+train_data <- trn[,-c(1,2,3,4,5,6,7)]
+predn_data <- prd[,-c(1,2,3,4,5,6,7)]
+```
+
+## Cleaning Data and Feature Selection
+A cursory inspection of the .csv files showed columns upon columns filled with NAs. Further, upon using the str() command, several more columns were counted as type "factor" and were mostly empty. Columns which fit either of these observations were removed in hopes that sources of unwanted noise would be eliminated. Notice that the final column, "classe," is not included in the loop and thus was not removed from the training set. This approach left 52 predictors to be evaluated. 
+
+```{r}
+## Find bad columns
+bad_seq <- NULL
+for (i in 1:(dim(train_data)[2]-1)) {
+        
+        ## Determine how "filled" a column is
+        percent_na <- sum(is.na(train_data[,i]))/(dim(train_data)[1])
+        
+        ## Boole
+        boole <- is.factor(train_data[,i])
+        
+        ## Add NA columns to bad list
+        if (percent_na > 0.30) {
+                bad_seq <- c(bad_seq,i)
+        }
+        
+        ## Add factor columns to bad list
+        else if (boole == TRUE) {
+                bad_seq <- c(bad_seq,i)
+        }
+        
+}
+
+## Remove "bad" columns
+unique_bad_seq <- unique(bad_seq)
+real_train_data <- train_data[,-unique_bad_seq]
+real_predn_data <- predn_data[,-unique_bad_seq]
+```
+
+# Fitting a Model
+
+## Creating Training and Testing Sets
+The training data from the "pml-training.csv" was divided into a "training" set and a "testing" set. The model would be trained on the "training" set, tested with the "testing" set, and only when the method was shown to be satisfactory, used to generate predictions with the prediction set.  
+
+```{r}
+## Divide the training data into training and testing
+inTrain <- createDataPartition(y=real_train_data$classe, p=0.75, list=FALSE)
+training <- real_train_data[inTrain,]
+testing <- real_train_data[-inTrain,]
+```
+
+## Preprocessing and Fitting
+Although many different options were explored, the "random forest" method was used because:
+        * It is useful in data with high noise[1]
+        * It had the highest accuracy of any other attempted method (qda,lda,RRF,gmp, etc.)
+
+"Repeated cross-validation" was used five times, and repeated 5 times. The data was normalized via the "center, scale" pre-processing option in the train() function.   
+
+```{r,message=FALSE,warning=FALSE}
+## Control for the train function
+fitControl <- trainControl(method="repeatedcv",
+                           number = 5, 
+                           repeats = 5)
+
+## Produce a model fit
+ptm <- proc.time()
+set.seed(1)
+modelFit <- train(training$classe ~., 
+                  data=training, 
+                  method="rf",
+                  preProcess = c("center","scale"),
+                  trControl=fitControl)
+proc.time() - ptm
+```
+
+## Evaluating Accuracy
+To evaluate accuracy, the "testing" set was used to generate predictions. The final column, "classe," was removed from this operation. The predictions were then compared against the final column in the "testing" set to evaluate the specificity, sensitivity, and overall accuracy of the random forest method on the data. The random forest method was highly accurate. The sensitivity was high for all classes, as was the specificity. 
+
+```{r}
+## Generate predictions from "testing data"
+predictions <- predict(modelFit,newdata=testing[,-53])
+
+## Confustion Matrix
+confusionMatrix(predictions,testing$classe)
+```
+
+As a visual example of how few incorrect classifications were made, consider a plot of true/false predictions using the testing set. 
+
+```{r,message=FALSE,warning=FALSE}
+## This example was take from the lecture notes
+testing$predRight <- predictions==testing$classe
+
+## Plot
+qplot(classe, color=predRight,data=testing,fill=predRight,main="Predictions for Testing Data")+facet_grid(.~predRight)
+```
+
+## Predictions 
+The model fit generated by the _random forest_ was used with the predict() funtion to generate grades of activity for 20 samples of new data. These predictions were graded as correct when submitted.  
+
+```{r}
+## Generate predictions from "prediction" set
+predict(modelFit,newdata=real_predn_data)
+```
+
+# Conclusion
+It was nearly possible to replicate the findings of the previous research using the Caret library in R. The random forest method was higly accurate, but the run-time was quite long. Potentially, if I had focused on finding only highly relevant features then the run-time would have been shorter. 
+
+# References
+1. Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H.: Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13). Stuttgart, Germany: ACM SIGCHI, 2013
